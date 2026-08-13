@@ -1,16 +1,11 @@
 name: ikincikat-internal
 
 x-asgard:
-  primary-service: proxy
+  primary-service: app
   services:
-    proxy:
-      role: web
-      public: true
-      port: 80
-      health-path: /api/health
     app:
       role: web
-      public: false
+      public: true
       port: 3000
       health-path: /api/health
     init:
@@ -35,20 +30,6 @@ x-asgard:
       health-path: /
 
 services:
-  proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile.caddy
-    restart: unless-stopped
-    ports:
-      - "3000:80"
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      app:
-        condition: service_healthy
-
   app:
     build:
       context: .
@@ -144,15 +125,8 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
       S3_BUCKET: ${S3_BUCKET:-ikincikat-profile-photos}
     command:
-      - /bin/sh
-      - -c
-      - >-
-        until mc alias set local http://minio:9000 "$${S3_ACCESS_KEY}" "$${S3_SECRET_KEY}"; do sleep 1; done &&
-        mc mb --ignore-existing "local/$${S3_BUCKET}" &&
-        mc anonymous set none "local/$${S3_BUCKET}"
+      - /init-minio.sh
 
 volumes:
   postgres_data:
   minio_data:
-  caddy_data:
-  caddy_config:

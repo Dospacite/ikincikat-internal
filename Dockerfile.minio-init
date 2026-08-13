@@ -1,3 +1,5 @@
 FROM minio/mc:RELEASE.2025-08-13T08-35-41Z
 
 ENTRYPOINT []
+COPY scripts/init-minio.sh /init-minio.sh
+RUN chmod +x /init-minio.sh
