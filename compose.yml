@@ -154,6 +154,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.minio-init
+    restart: "no"
     depends_on:
       minio:
         condition: service_started
