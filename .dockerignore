@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.env*
+coverage
+playwright-report
+test-results
+design-system/preview
+design-system/system
