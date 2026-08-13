@@ -11,4 +11,5 @@ RUN printf '%s\n' \
   '' \
   'mc mb --ignore-existing "local/$S3_BUCKET"' \
   'mc anonymous set none "local/$S3_BUCKET"' \
+  'exec tail -f /dev/null' \
   > /init-minio.sh && chmod +x /init-minio.sh
