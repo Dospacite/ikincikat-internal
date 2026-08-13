@@ -133,7 +133,9 @@ services:
     volumes:
       - minio_data:/data
   minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    build:
+      context: .
+      dockerfile: Dockerfile.minio-init
     depends_on:
       minio:
         condition: service_started
@@ -141,8 +143,9 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
       S3_BUCKET: ${S3_BUCKET:-ikincikat-profile-photos}
-    entrypoint: ["/bin/sh", "-c"]
     command:
+      - /bin/sh
+      - -c
       - >-
         until mc alias set local http://minio:9000 "$${S3_ACCESS_KEY}" "$${S3_SECRET_KEY}"; do sleep 1; done &&
         mc mb --ignore-existing "local/$${S3_BUCKET}" &&
