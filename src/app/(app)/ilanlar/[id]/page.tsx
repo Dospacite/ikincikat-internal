@@ -1,5 +1,11 @@
 import { and, desc, eq } from "drizzle-orm";
-import { CalendarDays, Clock, Coins, UserRound } from "lucide-react";
+import {
+  CalendarDays,
+  CalendarRange,
+  Clock,
+  Coins,
+  UserRound,
+} from "lucide-react";
 import { notFound } from "next/navigation";
 
 import {
@@ -22,7 +28,13 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { db } from "@/db";
-import { applications, postingSlots, postings, users } from "@/db/schema";
+import {
+  applications,
+  postingSlots,
+  postingUnavailability,
+  postings,
+  users,
+} from "@/db/schema";
 import { requireUser } from "@/lib/auth-guard";
 import {
   applicationStatus,
@@ -52,12 +64,17 @@ export default async function PostingDetailPage({
       !isAdmin)
   )
     notFound();
-  const [slots, myApplications] = await Promise.all([
+  const [slots, unavailability, myApplications] = await Promise.all([
     db
       .select()
       .from(postingSlots)
       .where(eq(postingSlots.postingId, id))
       .orderBy(postingSlots.position),
+    db
+      .select()
+      .from(postingUnavailability)
+      .where(eq(postingUnavailability.postingId, id))
+      .orderBy(postingUnavailability.calendarDate),
     db
       .select()
       .from(applications)
@@ -168,6 +185,60 @@ export default async function PostingDetailPage({
               </CardContent>
             </Card>
           )}
+          {posting.scheduleMode === "FLEXIBLE" &&
+            posting.flexibleStartDate &&
+            posting.flexibleEndDate && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Esnek uygunluk</CardTitle>
+                  <CardDescription>
+                    {formatDate(`${posting.flexibleStartDate}T12:00:00`)}–
+                    {formatDate(`${posting.flexibleEndDate}T12:00:00`)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  {unavailability.length === 0 ? (
+                    <p className="text-muted-foreground">
+                      Bu aralıktaki tüm gün ve saatler uygun.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sm text-muted-foreground">
+                        Aşağıdaki gün ve saatler uygun değil; aralıktaki diğer
+                        zamanlar uygundur.
+                      </p>
+                      <ul className="grid gap-3">
+                        {unavailability.map((constraint) => (
+                          <li
+                            key={constraint.id}
+                            className="flex items-start gap-3 rounded-lg border p-3"
+                          >
+                            <CalendarRange className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+                            <span>
+                              <span className="block font-medium">
+                                {formatDate(
+                                  `${constraint.calendarDate}T12:00:00`,
+                                )}
+                              </span>
+                              <span className="mt-0.5 block text-sm text-muted-foreground">
+                                {constraint.allDay
+                                  ? "Tüm gün uygun değil"
+                                  : `${constraint.unavailableHours
+                                      .map(
+                                        (hour) =>
+                                          `${String(hour).padStart(2, "0")}.00–${String(hour + 1).padStart(2, "0")}.00`,
+                                      )
+                                      .join(", ")} uygun değil`}
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           {isOwner && (
             <Card>
               <CardHeader>

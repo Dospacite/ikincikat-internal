@@ -4,6 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { createPostingAction } from "@/actions/domain";
+import { FlexibleAvailabilityBuilder } from "@/components/flexible-availability-builder";
 import { PendingButton } from "@/components/pending-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -103,14 +104,19 @@ export function PostingForm() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="FLEXIBLE">Tarih ve saat esnek</SelectItem>
+            <SelectItem value="FLEXIBLE">Esnek tarih aralığı</SelectItem>
             <SelectItem value="ONE_TIME">Tek bir tarih / saat</SelectItem>
             <SelectItem value="MULTIPLE_SLOTS">Birden fazla seçenek</SelectItem>
           </SelectContent>
         </Select>
-        <p className="text-sm text-muted-foreground">
-          Saatleri boş bırakırsanız yalnızca günü belirtmiş olursunuz.
-        </p>
+        {schedule !== "FLEXIBLE" && (
+          <p className="text-sm text-muted-foreground">
+            Saatleri boş bırakırsanız yalnızca günü belirtmiş olursunuz.
+          </p>
+        )}
+      </div>
+      <div hidden={schedule !== "FLEXIBLE"}>
+        <FlexibleAvailabilityBuilder active={schedule === "FLEXIBLE"} />
       </div>
       {schedule !== "FLEXIBLE" && (
         <div className="grid gap-3">

@@ -19,6 +19,7 @@ import {
   notifications,
   permissions,
   postingSlots,
+  postingUnavailability,
   postings,
   rolePermissions,
   roles,
@@ -73,6 +74,89 @@ export async function createPostingAction(formData: FormData) {
     .enum(["FLEXIBLE", "ONE_TIME", "MULTIPLE_SLOTS"])
     .parse(text(formData, "scheduleMode"));
   const creditAmount = positiveInteger(formData, "creditAmount", "Kredi");
+  const flexibleStartDate =
+    scheduleMode === "FLEXIBLE"
+      ? required(formData, "flexibleStartDate", "Esnek uygunluk başlangıcı")
+      : null;
+  const flexibleEndDate =
+    scheduleMode === "FLEXIBLE"
+      ? required(formData, "flexibleEndDate", "Esnek uygunluk bitişi")
+      : null;
+  const unavailabilitySchema = z
+    .array(
+      z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        allDay: z.boolean(),
+        unavailableHours: z.array(z.number().int().min(0).max(23)).max(24),
+      }),
+    )
+    .max(90);
+  let flexibleUnavailability: z.infer<typeof unavailabilitySchema> = [];
+  if (scheduleMode === "FLEXIBLE") {
+    try {
+      flexibleUnavailability = unavailabilitySchema.parse(
+        JSON.parse(required(formData, "flexibleUnavailability", "Uygunluk")),
+      );
+    } catch {
+      throw new Error("Esnek uygunluk bilgisi geçersiz.");
+    }
+    const todayInIstanbul = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Istanbul",
+    }).format(new Date());
+    const startDate = new Date(`${flexibleStartDate}T12:00:00+03:00`);
+    const endDate = new Date(`${flexibleEndDate}T12:00:00+03:00`);
+    const rangeDays = Math.floor(
+      (endDate.getTime() - startDate.getTime()) / 86_400_000,
+    );
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(flexibleStartDate!) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(flexibleEndDate!) ||
+      Number.isNaN(startDate.getTime()) ||
+      Number.isNaN(endDate.getTime()) ||
+      flexibleStartDate! < todayInIstanbul ||
+      rangeDays < 0 ||
+      rangeDays >= 90
+    )
+      throw new Error(
+        "Esnek uygunluk bugünden başlayan, en fazla 90 günlük geçerli bir aralık olmalı.",
+      );
+    const dateFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Istanbul",
+    });
+    if (
+      dateFormatter.format(startDate) !== flexibleStartDate ||
+      dateFormatter.format(endDate) !== flexibleEndDate
+    )
+      throw new Error("Esnek uygunluk tarihleri geçersiz.");
+    const seenDates = new Set<string>();
+    let unavailableDayCount = 0;
+    flexibleUnavailability = flexibleUnavailability.map((constraint) => {
+      const uniqueHours = [...new Set(constraint.unavailableHours)].sort(
+        (left, right) => left - right,
+      );
+      const constraintDate = new Date(`${constraint.date}T12:00:00+03:00`);
+      if (
+        Number.isNaN(constraintDate.getTime()) ||
+        dateFormatter.format(constraintDate) !== constraint.date ||
+        seenDates.has(constraint.date) ||
+        constraint.date < flexibleStartDate! ||
+        constraint.date > flexibleEndDate! ||
+        (constraint.allDay && uniqueHours.length > 0) ||
+        (!constraint.allDay && uniqueHours.length === 0)
+      )
+        throw new Error("Uygun olmadığınız gün veya saatlerden biri geçersiz.");
+      seenDates.add(constraint.date);
+      const allDay = constraint.allDay || uniqueHours.length === 24;
+      if (allDay) unavailableDayCount += 1;
+      return {
+        ...constraint,
+        allDay,
+        unavailableHours: allDay ? [] : uniqueHours,
+      };
+    });
+    if (unavailableDayCount > rangeDays)
+      throw new Error("Esnek uygunluk aralığında en az bir uygun gün kalmalı.");
+  }
   const dates = formData.getAll("slotDate").map(String).filter(Boolean);
   const starts = formData.getAll("slotStart").map(String);
   const ends = formData.getAll("slotEnd").map(String);
@@ -80,7 +164,6 @@ export async function createPostingAction(formData: FormData) {
     throw new Error("En az bir uygun tarih ekleyin.");
   if (scheduleMode === "ONE_TIME" && dates.length > 1)
     throw new Error("Tek seferlik ilan yalnızca bir zaman aralığı içerebilir.");
-
   const [posting] = await db.transaction(async (tx) => {
     const [created] = await tx
       .insert(postings)
@@ -92,6 +175,8 @@ export async function createPostingAction(formData: FormData) {
         pricingUnit,
         creditAmount,
         scheduleMode,
+        flexibleStartDate,
+        flexibleEndDate,
       })
       .returning();
     if (dates.length) {
@@ -118,6 +203,16 @@ export async function createPostingAction(formData: FormData) {
         }),
       );
     }
+    if (flexibleUnavailability.length) {
+      await tx.insert(postingUnavailability).values(
+        flexibleUnavailability.map((constraint) => ({
+          postingId: created.id,
+          calendarDate: constraint.date,
+          allDay: constraint.allDay,
+          unavailableHours: constraint.unavailableHours,
+        })),
+      );
+    }
     return [created];
   });
   await recordAudit({
@@ -125,7 +220,15 @@ export async function createPostingAction(formData: FormData) {
     action: "POSTING_CREATED",
     targetType: "posting",
     targetId: posting.id,
-    after: { title, direction, pricingUnit, creditAmount, scheduleMode },
+    after: {
+      title,
+      direction,
+      pricingUnit,
+      creditAmount,
+      scheduleMode,
+      flexibleStartDate,
+      flexibleEndDate,
+    },
   });
   redirect(`/ilanlar/${posting.id}?durum=olusturuldu`);
 }

@@ -254,6 +254,8 @@ export const postings = pgTable(
     pricingUnit: pricingUnitEnum("pricing_unit").notNull(),
     creditAmount: integer("credit_amount").notNull(),
     scheduleMode: scheduleModeEnum("schedule_mode").notNull(),
+    flexibleStartDate: date("flexible_start_date", { mode: "string" }),
+    flexibleEndDate: date("flexible_end_date", { mode: "string" }),
     status: postingStatusEnum("status").default("PUBLISHED").notNull(),
     moderatedReason: text("moderated_reason"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -261,6 +263,10 @@ export const postings = pgTable(
   },
   (table) => [
     check("postings_credit_positive", sql`${table.creditAmount} > 0`),
+    check(
+      "postings_flexible_range_valid",
+      sql`(${table.scheduleMode} = 'FLEXIBLE' AND ((${table.flexibleStartDate} IS NULL AND ${table.flexibleEndDate} IS NULL) OR (${table.flexibleStartDate} IS NOT NULL AND ${table.flexibleEndDate} IS NOT NULL AND ${table.flexibleEndDate} >= ${table.flexibleStartDate}))) OR (${table.scheduleMode} <> 'FLEXIBLE' AND ${table.flexibleStartDate} IS NULL AND ${table.flexibleEndDate} IS NULL)`,
+    ),
     index("postings_owner_idx").on(table.ownerId),
     index("postings_status_created_idx").on(table.status, table.createdAt),
   ],
@@ -281,6 +287,36 @@ export const postingSlots = pgTable(
   },
   (table) => [
     index("posting_slots_posting_idx").on(table.postingId, table.position),
+  ],
+);
+
+export const postingUnavailability = pgTable(
+  "posting_unavailability",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    postingId: uuid("posting_id")
+      .notNull()
+      .references(() => postings.id, { onDelete: "cascade" }),
+    calendarDate: date("calendar_date", { mode: "string" }).notNull(),
+    allDay: boolean("all_day").default(false).notNull(),
+    unavailableHours: integer("unavailable_hours")
+      .array()
+      .default(sql`'{}'::integer[]`)
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("posting_unavailability_posting_date_unique").on(
+      table.postingId,
+      table.calendarDate,
+    ),
+    check(
+      "posting_unavailability_kind_valid",
+      sql`(${table.allDay} AND cardinality(${table.unavailableHours}) = 0) OR (NOT ${table.allDay} AND cardinality(${table.unavailableHours}) > 0)`,
+    ),
+    check(
+      "posting_unavailability_hours_valid",
+      sql`${table.unavailableHours} <@ ARRAY[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]::integer[]`,
+    ),
   ],
 );
 
@@ -510,6 +546,7 @@ export const rolesRelations = relations(roles, ({ many }) => ({
 export const postingsRelations = relations(postings, ({ one, many }) => ({
   owner: one(users, { fields: [postings.ownerId], references: [users.id] }),
   slots: many(postingSlots),
+  unavailability: many(postingUnavailability),
   applications: many(applications),
 }));
 
@@ -540,6 +577,7 @@ export const schema = {
   userRoles,
   postings,
   postingSlots,
+  postingUnavailability,
   applications,
   exchanges,
   creditAccounts,
